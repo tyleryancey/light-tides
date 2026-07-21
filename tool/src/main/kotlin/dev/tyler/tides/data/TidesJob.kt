@@ -1,11 +1,14 @@
 package dev.tyler.tides.data
 
+import android.util.Log
 import com.thelightphone.sdk.LightJob
 import com.thelightphone.sdk.LightJobHandler
 import com.thelightphone.sdk.LightJobResult
 import com.thelightphone.sdk.buildDatabase
 import dev.tyler.tides.api.TidesStationError
 import java.time.LocalDate
+
+private const val LOG_TAG = "TidesJob"
 
 const val TIDES_REFRESH_JOB_KEY = "tides-refresh"
 
@@ -24,7 +27,12 @@ val tidesRefreshJob: LightJobHandler = { ctx, _ ->
     val repository = TideRepository.getInstance(dataStore = ctx.dataStore) {
         ctx.buildDatabase(TideDatabase::class.java, TideDatabase.DATABASE_NAME)
     }
-    repository.loadTides(LocalDate.now()).toJobResult()
+    val snapshot = repository.loadTides(LocalDate.now())
+    val result = snapshot.toJobResult()
+    // Cheap and only place this job's outcome is observable on a real device without a debugger
+    // attached — `adb logcat -s TidesJob` is the verification path for the daily top-up.
+    Log.d(LOG_TAG, "ran for station=${snapshot?.station?.id}, stale=${snapshot?.stale}, result=$result")
+    result
 }
 
 // Split out from the handler above so the decision itself — the only branching in this job —
