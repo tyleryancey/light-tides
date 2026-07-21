@@ -7,6 +7,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.time.LocalDate
@@ -80,7 +81,7 @@ class TidesApi(private val application: String = "dev.tyler.tides") : TidesFetch
         stationId: String,
         beginDate: LocalDate,
         endDate: LocalDate,
-    ): Result<List<TidePrediction>> = runCatching {
+    ): Result<List<TidePrediction>> = try {
         val response = client.get("https://api.tidesandcurrents.noaa.gov/api/prod/datagetter") {
             parameter("product", "predictions")
             parameter("datum", "MLLW")
@@ -96,7 +97,13 @@ class TidesApi(private val application: String = "dev.tyler.tides") : TidesFetch
 
         val bodyText = response.bodyAsText()
         val parsed = json.decodeFromString<DataGetterResponse>(bodyText)
-        parsed.toPredictionsOrThrow(httpSuccess = response.status.isSuccess(), rawBody = bodyText)
+        Result.success(parsed.toPredictionsOrThrow(httpSuccess = response.status.isSuccess(), rawBody = bodyText))
+    } catch (cancellation: CancellationException) {
+        // A cancelled fetch (e.g. WorkManager stopping the job mid-request) must propagate as a
+        // real cancellation, not get recorded as a "stale" snapshot with a Retry outcome.
+        throw cancellation
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 
     fun close() {

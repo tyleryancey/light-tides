@@ -4,6 +4,7 @@ import androidx.lifecycle.viewModelScope
 import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.SimpleLightScreen
 import dev.tyler.tides.api.TidePrediction
+import dev.tyler.tides.api.TidesStationError
 import dev.tyler.tides.data.SelectedStation
 import dev.tyler.tides.data.TideRepository
 import dev.tyler.tides.data.TideUnit
@@ -41,8 +42,10 @@ data class HomeUiState(
     val units: TideUnit = TideUnit.FEET,
 )
 
-private const val OFFLINE_EMPTY_MESSAGE = "Tides requires a network connection the first " +
+internal const val OFFLINE_EMPTY_MESSAGE = "Tides requires a network connection the first " +
     "time you view a station. Please insert a data sim or connect to wi-fi."
+internal const val STATION_ERROR_MESSAGE = "This station isn't reporting predictions right now. " +
+    "Try choosing another one."
 
 class HomeViewModel(
     private val repository: TideRepository,
@@ -116,10 +119,13 @@ class HomeViewModel(
     }
 }
 
-private fun dev.tyler.tides.data.TidesSnapshot?.toScreenMode(today: LocalDate): HomeScreenMode {
+internal fun dev.tyler.tides.data.TidesSnapshot?.toScreenMode(today: LocalDate): HomeScreenMode {
     val snapshot = this ?: return HomeScreenMode.NeedsStation
     if (snapshot.predictions.isEmpty() && snapshot.stale) {
-        return HomeScreenMode.ErrorState(OFFLINE_EMPTY_MESSAGE)
+        // A permanent NOAA error (bad station/query) reads nothing like "no network" — telling
+        // an online user to check their SIM would be a false diagnosis with no way to correct it.
+        val message = if (snapshot.staleCause is TidesStationError) STATION_ERROR_MESSAGE else OFFLINE_EMPTY_MESSAGE
+        return HomeScreenMode.ErrorState(message)
     }
 
     val now = LocalDateTime.now()

@@ -4,10 +4,16 @@ Tide predictions for one coastal station, refreshed once a day.
 
 ## US-coastal only
 
-Tides is built on NOAA's CO-OPS tide-prediction network, which covers the
-United States, its territories, and a handful of Compact of Free Association
-stations (Micronesia). **v1 has no coverage outside that footprint.** If your
-coastline isn't a NOAA station, this tool has nothing to offer you yet —
+Tides is built on NOAA's CO-OPS tide-prediction network — American coastal
+water levels, the US's own domestic public-domain data. **v1's design,
+testing, and defense are all US-coastal; that's the intended use case.** The
+bundled ~3,500-station directory is NOAA's own listing, trimmed but not
+otherwise filtered, so alongside every US state, territory, and Compact of
+Free Association station it also carries a long tail of older reference
+stations NOAA's directory includes for foreign ports — a holdover from
+decades of published US predictions abroad. Picking one of those isn't the
+intended path and isn't part of what's been verified; if your coastline
+isn't a US NOAA station, this tool isn't built with you in mind yet —
 international sources are a later, per-country decision, not a v1 gap to be
 patched around.
 

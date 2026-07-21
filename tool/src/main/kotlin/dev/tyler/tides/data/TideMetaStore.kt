@@ -35,6 +35,10 @@ class DataStoreTideMetaStore(
         return SelectedStation(id, name, state)
     }
 
+    // Load-bearing that the id/name/state write and the LAST_FETCH_EPOCH_DAY clear happen in one
+    // atomic `edit` — TideRepository's unsynchronized reads (outside its mutex) rely on never
+    // observing the new station id paired with the old, still-valid fetch stamp. Splitting this
+    // into two edits would reopen the false-freshness race the repository's mutex guards against.
     override suspend fun setStation(stationId: String, stationName: String, stationState: String) {
         dataStore.edit { prefs ->
             prefs[TidePreferenceKeys.STATION_ID] = stationId

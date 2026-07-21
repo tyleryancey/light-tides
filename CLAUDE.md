@@ -33,7 +33,9 @@ serverPackage = "com.thelightphone.sdk.emulator"   # "com.lightos" on the LP3
 
 ```
 tool/src/main/kotlin/dev/tyler/tides/
-  ToolEntryPoint.kt          empty screen hooks; hosts @LightJob "tides-refresh"
+  ToolEntryPoint.kt          empty screen hooks — onToolCreate(serverData) receives no
+                             SealedLightContext, so it cannot call LightWork itself; it does
+                             NOT host the job (see data/TidesJob.kt and ui/HomeScreen.kt below)
   stations/
     StationIndex.kt          loads bundled asset; nearestTo(lat,lon,k) via haversine — pure JVM
     stations.json            ← generated asset (see below): [{id,name,state,lat,lon},…]
@@ -43,8 +45,14 @@ tool/src/main/kotlin/dev/tyler/tides/
                              heightFt REAL, type TEXT 'H'|'L', PRIMARY KEY(stationId,t));
                              meta via DataStore: stationId, stationName, lastFetchEpochDay
     TideRepository.kt        cache-first read; fetch window = today..today+6; prune < today−1
+    TidesJob.kt              @LightJob "tides-refresh" handler — lives here, not in
+                             ToolEntryPoint, since the annotation just needs a top-level
+                             LightJobHandler val anywhere in the module
   ui/
-    HomeScreen.kt            @InitialScreen — next tides + day strip
+    HomeScreen.kt            @InitialScreen — next tides + day strip; also the one that calls
+                             LightWork.enqueuePeriodic(TidesJob) on every show, since it's the
+                             first screen shown and the only place a SealedLightContext exists
+                             this early — enqueuePeriodic's UPDATE policy makes that idempotent
     StationScreen.kt         typed search over the bundled index (offline) → save
 tool/src/test/kotlin/.../   StationIndexTest.kt, RepositoryTest.kt   ← pure-JVM gate
 ```
@@ -56,7 +64,7 @@ tool/src/test/kotlin/.../   StationIndexTest.kt, RepositoryTest.kt   ← pure-JV
 - **Home:** station name · big "Next: HIGH 5.2 ft — 4:12 PM" with a "in 2 h 40 m" line (compare naive station time to naive phone time — imperfect across zones, fine for someone standing on that coast; if station state ≠ plausible phone zone, drop the countdown line rather than get it wrong) · today's remaining H/L rows · a 7-day strip of per-day H/L pairs. Finite: seven days, then nothing to scroll.
 - Cache-first always: render from Room instantly, show "updated {relative}" in Detail variant; fetch only when `lastFetchEpochDay < today` or station changed; offline + stale-but-present → render with the stamp, no error modal; offline + empty → weather-style error state.
 - **Station picker:** `LightTextInputEditor` filtering the bundled index by substring on name/state (top 12 results, finite). First launch lands here (`canCancel=false`). Changing station wipes the other station's rows.
-- **`@LightJob "tides-refresh"`:** if `lastFetchEpochDay < today`, fetch and store; schedule daily-ish via LightWork's mechanism (read `sdk` for the enqueue API — verify how jobs are scheduled/periodic in this snapshot before assuming WorkManager's own periodic API is exposed). Job failure is invisible-by-design; the on-open path always self-heals.
+- **`@LightJob "tides-refresh"`:** if `lastFetchEpochDay < today`, fetch and store (reuses `TideRepository.loadTides`, so a run on an already-fresh day costs nothing beyond a read). Confirmed: `LightWork.enqueuePeriodic(context, key, repeatInterval, tag)` exposes WorkManager's own periodic API directly (15-minute floor) — no need to hand-roll a daily reschedule. Scheduled from `HomeScreen` at 24h, not from `ToolEntryPoint` (see Architecture note above). Job failure is invisible-by-design; the on-open path always self-heals — and the job itself distinguishes a permanent NOAA error (bad station/query — resolves to `Error`, resumes the normal daily cadence) from a transient HTTP/network failure (`Retry`, so WorkManager backs off and tries again soon), so a dead station doesn't get hammered forever.
 - Settings: exactly one — units ft/m (**default ft**, since v1 is NOAA/US; keep the settings-default-off spirit by adding nothing else). `units=english` fetch + local conversion for display, or refetch metric — convert locally, simpler.
 - Monochrome discipline: `LightTheme`/`LightThemeTokens`, dual palette, no color literals; H/L distinguished by ▲/▼ glyphs and weight, not color.
 

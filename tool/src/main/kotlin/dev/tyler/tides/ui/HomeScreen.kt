@@ -86,7 +86,11 @@ class HomeScreen(sealedActivity: SealedLightActivity) :
         LightTheme(colors = themeColors) {
             when (val mode = state.mode) {
                 is HomeScreenMode.Loading, is HomeScreenMode.NeedsStation -> LoadingContent()
-                is HomeScreenMode.ErrorState -> ErrorContent(message = mode.message, onRetry = viewModel::reload)
+                is HomeScreenMode.ErrorState -> ErrorContent(
+                    message = mode.message,
+                    onRetry = viewModel::reload,
+                    onOpenSettings = { navigateTo(screenFactory = { SettingsScreen(it) }) },
+                )
                 is HomeScreenMode.Content -> TidesContent(
                     mode = mode,
                     units = state.units,
@@ -108,7 +112,7 @@ private fun LoadingContent() {
 }
 
 @Composable
-private fun ErrorContent(message: String, onRetry: () -> Unit) {
+private fun ErrorContent(message: String, onRetry: () -> Unit, onOpenSettings: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(LightThemeTokens.colors.background)) {
         LightTopBar(
             center = LightTopBarCenter.Text("Tides"),
@@ -125,7 +129,13 @@ private fun ErrorContent(message: String, onRetry: () -> Unit) {
         }
         LightBottomBar(
             items = listOf(
-                null,
+                // A permanent NOAA error has no retry that will ever succeed — Settings (and from
+                // there, the station picker) is the only real way out of this screen for that case.
+                LightBarButton.LightIcon(
+                    icon = LightIcons.SETTINGS,
+                    onClick = onOpenSettings,
+                    contentDescription = "Settings",
+                ),
                 LightBarButton.LightIcon(icon = LightIcons.REFRESH, onClick = onRetry, contentDescription = "Retry"),
                 null,
             ),

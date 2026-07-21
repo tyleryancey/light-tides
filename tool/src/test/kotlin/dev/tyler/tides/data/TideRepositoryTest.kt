@@ -1,7 +1,12 @@
 package dev.tyler.tides.data
 
 import dev.tyler.tides.api.TidePrediction
+import dev.tyler.tides.api.TidesFetcher
 import dev.tyler.tides.api.TideType
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -115,5 +120,53 @@ class TideRepositoryTest {
 
         assertTrue(store.forStation("9414290").isEmpty())
         assertNull(meta.lastFetchEpochDay())
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun stationSwitchDuringAnInFlightFetchDoesNotStampTheNewStationFreshWithTheOldOnesData() = runTest {
+        val meta = FakeTideMetaStore()
+        val store = FakePredictionStore()
+        val fetchGate = CompletableDeferred<Unit>()
+        val fetcher = object : TidesFetcher {
+            override suspend fun fetchPredictions(
+                stationId: String,
+                beginDate: LocalDate,
+                endDate: LocalDate,
+            ): Result<List<TidePrediction>> {
+                fetchGate.await()
+                return Result.success(listOf(prediction(20, 4, 4.2, TideType.HIGH)))
+            }
+        }
+        meta.setStation("9414290", "SAN FRANCISCO (Golden Gate)", "CA")
+        meta.setLastFetchEpochDay(today.minusDays(1).toEpochDay()) // stale — loadTides will fetch
+
+        val repo = TideRepository(meta, store, fetcher)
+
+        // Home's reload starts fetching the old station and suspends mid-flight...
+        val loadJob = launch { repo.loadTides(today) }
+        advanceUntilIdle()
+
+        // ...while the user switches to a different station from Settings.
+        val selectJob = launch { repo.selectStation("9447130", "SEATTLE (Madison St.), Elliott Bay", "WA") }
+        advanceUntilIdle()
+
+        // The switch must complete on its own — never blocked behind the still-pending fetch —
+        // or a screen torn down while queued behind a slow fetch could silently lose the pick.
+        assertTrue(selectJob.isCompleted)
+        assertEquals("9447130", meta.currentStation()?.id)
+
+        // The old fetch finally completes.
+        fetchGate.complete(Unit)
+        advanceUntilIdle()
+        loadJob.join()
+        selectJob.join()
+
+        // The new station must not be left looking fresh off the old station's completed fetch.
+        assertEquals("9447130", meta.currentStation()?.id)
+        assertNull(meta.lastFetchEpochDay())
+        assertTrue(store.forStation("9447130").isEmpty())
+        // ...and the discarded fetch must not resurrect the old (already-cleared) station's rows.
+        assertTrue(store.forStation("9414290").isEmpty())
     }
 }

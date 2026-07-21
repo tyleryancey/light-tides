@@ -15,7 +15,8 @@ data class TidesSnapshot(
     val lastFetchEpochDay: Long?,
     val stale: Boolean,
     // Only set when stale from a failed fetch — lets callers that care (TidesJob) distinguish a
-    // permanent failure (bad station/query) from a transient one (network/HTTP). The UI ignores it.
+    // permanent failure (bad station/query) from a transient one (network/HTTP). HomeViewModel
+    // also branches on it to avoid blaming a permanent NOAA error on the network.
     val staleCause: Throwable? = null,
 )
 
@@ -25,13 +26,18 @@ class TideRepository(
     private val api: TidesFetcher,
 ) {
     // TideRepository is a process-wide singleton (see getInstance) reached independently by
-    // Home's reload, Settings, and the tides-refresh job — without this, a job run landing at
-    // the same moment as an on-open reload on a stale day double-fetches the same station.
-    private val loadMutex = Mutex()
+    // Home's reload, Settings, and the tides-refresh job. This only ever guards fast, local
+    // meta/Room operations — never the network fetch itself. An earlier version held it across
+    // the whole fetch, which fixed the race below but meant a station switch could queue behind
+    // a slow fetch for tens of seconds; if the screen holding that switch got torn down (e.g. the
+    // user backed out of Settings) while queued, the switch was silently dropped, since a
+    // suspended withLock is itself cancellable. Re-validating ownership right before the write
+    // fixes the same race without ever blocking selectStation on a network call.
+    private val mutex = Mutex()
 
     suspend fun currentStation(): SelectedStation? = meta.currentStation()
 
-    suspend fun selectStation(stationId: String, stationName: String, stationState: String) {
+    suspend fun selectStation(stationId: String, stationName: String, stationState: String) = mutex.withLock {
         val previous = meta.currentStation()
         // setStation first: if this coroutine is cancelled (e.g. Settings closes mid-write)
         // right after, the new station is already selected with lastFetchEpochDay cleared, so
@@ -45,23 +51,38 @@ class TideRepository(
     }
 
     /** Cache-first: returns null only when no station has been selected yet. */
-    suspend fun loadTides(today: LocalDate): TidesSnapshot? = loadMutex.withLock {
-        val station = meta.currentStation() ?: return@withLock null
+    suspend fun loadTides(today: LocalDate): TidesSnapshot? {
+        val station = meta.currentStation() ?: return null
         val cached = predictions.forStation(station.id)
         val lastFetch = meta.lastFetchEpochDay()
 
         if (lastFetch != null && lastFetch >= today.toEpochDay()) {
-            return@withLock TidesSnapshot(station, cached, lastFetch, stale = false)
+            return TidesSnapshot(station, cached, lastFetch, stale = false)
         }
 
         val fetched = api.fetchPredictions(station.id, today, today.plusDays(6))
-        fetched.fold(
+        return fetched.fold(
             onSuccess = { fresh ->
-                predictions.prune(station.id, before = today.minusDays(1))
-                predictions.save(station.id, fresh)
-                val refreshed = predictions.forStation(station.id)
-                meta.setLastFetchEpochDay(today.toEpochDay())
-                TidesSnapshot(station, refreshed, today.toEpochDay(), stale = false)
+                // The user may have switched stations while this fetch was in flight. If so, this
+                // data belongs to a station that's no longer selected — write it and we'd stamp
+                // the NEW station's (empty) cache as fresh with the OLD station's rows never
+                // actually attached to it. Check-and-write atomically so a selectStation landing
+                // in between sees a consistent before-or-after state, not a torn one.
+                val wrote = mutex.withLock {
+                    if (meta.currentStation()?.id == station.id) {
+                        predictions.prune(station.id, before = today.minusDays(1))
+                        predictions.save(station.id, fresh)
+                        meta.setLastFetchEpochDay(today.toEpochDay())
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (wrote) {
+                    TidesSnapshot(station, predictions.forStation(station.id), today.toEpochDay(), stale = false)
+                } else {
+                    TidesSnapshot(station, cached, lastFetch, stale = true)
+                }
             },
             onFailure = { cause ->
                 TidesSnapshot(station, cached, lastFetch, stale = true, staleCause = cause)
