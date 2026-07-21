@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import com.thelightphone.sdk.InitialScreen
 import com.thelightphone.sdk.LightScreen
+import com.thelightphone.sdk.LightWork
 import com.thelightphone.sdk.SealedLightActivity
 import com.thelightphone.sdk.buildDatabase
 import com.thelightphone.sdk.ui.LightBarButton
@@ -34,11 +35,13 @@ import com.thelightphone.sdk.ui.gridUnitsAsDp
 import dev.tyler.tides.api.TidePrediction
 import dev.tyler.tides.api.TideType
 import dev.tyler.tides.data.DataStoreUnitsPreferenceStore
+import dev.tyler.tides.data.TIDES_REFRESH_JOB_KEY
 import dev.tyler.tides.data.TideDatabase
 import dev.tyler.tides.data.TideRepository
 import dev.tyler.tides.data.TideUnit
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.time.Duration.Companion.hours
 
 @InitialScreen
 class HomeScreen(sealedActivity: SealedLightActivity) :
@@ -70,6 +73,14 @@ class HomeScreen(sealedActivity: SealedLightActivity) :
                     viewModel.onStationPicked(picked)
                 }
             }
+        }
+
+        // No SealedLightContext reaches onToolCreate (LightEntryPoint only hands it a
+        // StateFlow<LightServerData?>), so Home — always the first screen shown — is where the
+        // daily top-up job actually gets scheduled. enqueuePeriodic's UPDATE policy makes this
+        // idempotent whether or not a station is selected yet; the job itself no-ops until one is.
+        LaunchedEffect(Unit) {
+            LightWork.enqueuePeriodic(lightContext, TIDES_REFRESH_JOB_KEY, 24.hours)
         }
 
         LightTheme(colors = themeColors) {

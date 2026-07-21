@@ -37,10 +37,21 @@ class TidesApiParsingTest {
         val body = fixture("predictions-error.json")
         val response = json.decodeFromString<DataGetterResponse>(body)
 
-        val thrown = assertFailsWith<TidesApiException> {
+        val thrown = assertFailsWith<TidesStationError> {
             response.toPredictionsOrThrow(httpSuccess = true, rawBody = body)
         }
         assertTrue(thrown.message!!.contains("Predictions data"))
+    }
+
+    @Test
+    fun throwsHttpErrorNotStationErrorOnNonSuccessStatusWithoutAnErrorKey() {
+        // e.g. a transient 503 with a plain-text body — distinct from a NOAA error-key payload,
+        // since TidesJob.toJobResult retries the former but treats the latter as permanent.
+        val response = DataGetterResponse(predictions = null, error = null)
+
+        assertFailsWith<TidesHttpError> {
+            response.toPredictionsOrThrow(httpSuccess = false, rawBody = "Service Unavailable")
+        }
     }
 
     @Test

@@ -38,7 +38,13 @@ data class TidePrediction(
     val type: TideType,
 )
 
-class TidesApiException(message: String) : Exception(message)
+// NOAA's `{"error":{...}}` payload means the query itself is invalid (bad station/datum/etc.) —
+// permanent, retrying won't help. An HTTP-level failure (including 5xx) may well be transient.
+// Job scheduling (TidesJob.toJobResult) relies on this split to avoid retrying forever on a
+// permanently bad station instead of resuming the normal daily cadence.
+sealed class TidesApiException(message: String) : Exception(message)
+class TidesStationError(message: String) : TidesApiException(message)
+class TidesHttpError(message: String) : TidesApiException(message)
 
 interface TidesFetcher {
     suspend fun fetchPredictions(
@@ -104,9 +110,9 @@ internal fun DataGetterResponse.toPredictionsOrThrow(
     httpSuccess: Boolean,
     rawBody: String,
 ): List<TidePrediction> {
-    error?.let { throw TidesApiException(it.message) }
+    error?.let { throw TidesStationError(it.message) }
     if (!httpSuccess) {
-        throw TidesApiException("Tides HTTP error: ${rawBody.take(500)}")
+        throw TidesHttpError("Tides HTTP error: ${rawBody.take(500)}")
     }
     return predictions.orEmpty().mapNotNull { it.toDomainOrNull() }
 }
