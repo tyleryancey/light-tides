@@ -6,8 +6,8 @@ class FakeTideMetaStore : TideMetaStore {
 
     override suspend fun currentStation(): SelectedStation? = station
 
-    override suspend fun setStation(stationId: String, stationName: String) {
-        station = SelectedStation(stationId, stationName)
+    override suspend fun setStation(stationId: String, stationName: String, stationState: String) {
+        station = SelectedStation(stationId, stationName, stationState)
         lastFetch = null
     }
 

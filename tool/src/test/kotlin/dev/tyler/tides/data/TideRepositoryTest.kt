@@ -30,7 +30,7 @@ class TideRepositoryTest {
         val meta = FakeTideMetaStore()
         val store = FakePredictionStore()
         val fetcher = FakeTidesFetcher()
-        meta.setStation("9414290", "SAN FRANCISCO (Golden Gate)")
+        meta.setStation("9414290", "SAN FRANCISCO (Golden Gate)", "CA")
         meta.setLastFetchEpochDay(today.toEpochDay())
         store.save("9414290", listOf(prediction(20, 4, 4.2, TideType.HIGH)))
 
@@ -47,7 +47,7 @@ class TideRepositoryTest {
         val meta = FakeTideMetaStore()
         val store = FakePredictionStore()
         val fetcher = FakeTidesFetcher()
-        meta.setStation("9414290", "SAN FRANCISCO (Golden Gate)")
+        meta.setStation("9414290", "SAN FRANCISCO (Golden Gate)", "CA")
         meta.setLastFetchEpochDay(today.minusDays(1).toEpochDay())
         store.save(
             "9414290",
@@ -75,7 +75,7 @@ class TideRepositoryTest {
         val meta = FakeTideMetaStore()
         val store = FakePredictionStore()
         val fetcher = FakeTidesFetcher()
-        meta.setStation("9414290", "SAN FRANCISCO (Golden Gate)")
+        meta.setStation("9414290", "SAN FRANCISCO (Golden Gate)", "CA")
         meta.setLastFetchEpochDay(today.minusDays(1).toEpochDay())
         store.save("9414290", listOf(prediction(19, 4, 2.0, TideType.HIGH)))
         fetcher.setNextResult(Result.failure(RuntimeException("offline")))
@@ -92,7 +92,7 @@ class TideRepositoryTest {
     fun noCacheWithFailedRefetchReturnsEmptyMarkedStale() = runTest {
         val meta = FakeTideMetaStore()
         val fetcher = FakeTidesFetcher()
-        meta.setStation("9414290", "SAN FRANCISCO (Golden Gate)")
+        meta.setStation("9414290", "SAN FRANCISCO (Golden Gate)", "CA")
         fetcher.setNextResult(Result.failure(RuntimeException("offline")))
 
         val repo = TideRepository(meta, FakePredictionStore(), fetcher)
@@ -108,10 +108,10 @@ class TideRepositoryTest {
         val store = FakePredictionStore()
         val repo = TideRepository(meta, store, FakeTidesFetcher())
 
-        repo.selectStation("9414290", "SAN FRANCISCO (Golden Gate)")
+        repo.selectStation("9414290", "SAN FRANCISCO (Golden Gate)", "CA")
         store.save("9414290", listOf(prediction(20, 4, 4.2, TideType.HIGH)))
 
-        repo.selectStation("9447130", "SEATTLE (Madison St.), Elliott Bay")
+        repo.selectStation("9447130", "SEATTLE (Madison St.), Elliott Bay", "WA")
 
         assertTrue(store.forStation("9414290").isEmpty())
         assertNull(meta.lastFetchEpochDay())

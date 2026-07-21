@@ -1,6 +1,9 @@
 package dev.tyler.tides.data
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import dev.tyler.tides.api.TidePrediction
+import dev.tyler.tides.api.TidesApi
 import dev.tyler.tides.api.TidesFetcher
 import java.time.LocalDate
 
@@ -16,12 +19,19 @@ class TideRepository(
     private val predictions: PredictionStore,
     private val api: TidesFetcher,
 ) {
-    suspend fun selectStation(stationId: String, stationName: String) {
+    suspend fun currentStation(): SelectedStation? = meta.currentStation()
+
+    suspend fun selectStation(stationId: String, stationName: String, stationState: String) {
         val previous = meta.currentStation()
+        // setStation first: if this coroutine is cancelled (e.g. Settings closes mid-write)
+        // right after, the new station is already selected with lastFetchEpochDay cleared, so
+        // the next load just re-fetches it — self-healing. Clearing first would instead risk
+        // leaving the OLD station selected with its rows already wiped and lastFetchEpochDay
+        // still valid, which reads as a real, empty week rather than stale data needing a retry.
+        meta.setStation(stationId, stationName, stationState)
         if (previous != null && previous.id != stationId) {
             predictions.clearStation(previous.id)
         }
-        meta.setStation(stationId, stationName)
     }
 
     /** Cache-first: returns null only when no station has been selected yet. */
@@ -47,5 +57,24 @@ class TideRepository(
                 TidesSnapshot(station, cached, lastFetch, stale = true)
             },
         )
+    }
+
+    companion object {
+        @Volatile
+        private var instance: TideRepository? = null
+
+        fun getInstance(
+            dataStore: DataStore<Preferences>,
+            databaseProvider: () -> TideDatabase,
+        ): TideRepository = instance ?: synchronized(this) {
+            instance ?: run {
+                val db = databaseProvider()
+                TideRepository(
+                    meta = DataStoreTideMetaStore(dataStore),
+                    predictions = RoomPredictionStore(db.predictionDao()),
+                    api = TidesApi(),
+                ).also { instance = it }
+            }
+        }
     }
 }

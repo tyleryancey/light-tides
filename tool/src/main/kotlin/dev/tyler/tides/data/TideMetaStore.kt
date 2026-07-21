@@ -7,11 +7,11 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.first
 
-data class SelectedStation(val id: String, val name: String)
+data class SelectedStation(val id: String, val name: String, val state: String)
 
 interface TideMetaStore {
     suspend fun currentStation(): SelectedStation?
-    suspend fun setStation(stationId: String, stationName: String)
+    suspend fun setStation(stationId: String, stationName: String, stationState: String)
     suspend fun lastFetchEpochDay(): Long?
     suspend fun setLastFetchEpochDay(epochDay: Long)
 }
@@ -19,6 +19,7 @@ interface TideMetaStore {
 private object TidePreferenceKeys {
     val STATION_ID = stringPreferencesKey("station_id")
     val STATION_NAME = stringPreferencesKey("station_name")
+    val STATION_STATE = stringPreferencesKey("station_state")
     val LAST_FETCH_EPOCH_DAY = longPreferencesKey("last_fetch_epoch_day")
 }
 
@@ -30,13 +31,15 @@ class DataStoreTideMetaStore(
         val prefs = dataStore.data.first()
         val id = prefs[TidePreferenceKeys.STATION_ID] ?: return null
         val name = prefs[TidePreferenceKeys.STATION_NAME] ?: return null
-        return SelectedStation(id, name)
+        val state = prefs[TidePreferenceKeys.STATION_STATE] ?: return null
+        return SelectedStation(id, name, state)
     }
 
-    override suspend fun setStation(stationId: String, stationName: String) {
+    override suspend fun setStation(stationId: String, stationName: String, stationState: String) {
         dataStore.edit { prefs ->
             prefs[TidePreferenceKeys.STATION_ID] = stationId
             prefs[TidePreferenceKeys.STATION_NAME] = stationName
+            prefs[TidePreferenceKeys.STATION_STATE] = stationState
             prefs.remove(TidePreferenceKeys.LAST_FETCH_EPOCH_DAY)
         }
     }

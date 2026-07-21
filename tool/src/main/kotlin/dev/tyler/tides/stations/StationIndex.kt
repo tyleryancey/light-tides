@@ -36,6 +36,9 @@ class StationIndex(private val stations: List<Station>) {
             .take(k)
 
     companion object {
+        @Volatile
+        private var cached: StationIndex? = null
+
         fun load(json: Json = Json { ignoreUnknownKeys = true }): StationIndex {
             // This class's own defining classloader is reliable on Android regardless
             // of which thread calls load(); the thread's context classloader is not.
@@ -48,6 +51,12 @@ class StationIndex(private val stations: List<Station>) {
             }
             val text = stream.bufferedReader().readText()
             return StationIndex(json.decodeFromString(text))
+        }
+
+        // The bundled directory only changes across app updates, so re-parsing it on every
+        // picker open (StationScreen.createViewModel runs on the main thread) is pure waste.
+        fun getInstance(): StationIndex = cached ?: synchronized(this) {
+            cached ?: load().also { cached = it }
         }
     }
 }
