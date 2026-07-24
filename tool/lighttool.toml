@@ -4,6 +4,6 @@ label = "Tides"
 versionCode = 1
 versionName = "0.1.0"
 permissions = ["android.permission.INTERNET", "android.permission.ACCESS_NETWORK_STATE"]
-# change if you run this on an LP3!
-# serverPackage = "com.lightos"
-serverPackage = "com.thelightphone.sdk.emulator"
+# change back to com.thelightphone.sdk.emulator for AVD/emulator testing
+serverPackage = "com.lightos"
+# serverPackage = "com.thelightphone.sdk.emulator"
