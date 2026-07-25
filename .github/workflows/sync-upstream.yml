@@ -86,9 +86,16 @@ jobs:
         id: merge
         if: steps.check-pr.outputs.existing_pr == ''
         run: |
+          before=$(git rev-parse HEAD)
           summary=$(git log --oneline --no-decorate HEAD..origin/main)
           if git merge origin/main -m "Merge main into ${{ matrix.branch }}" -m "Upstream changes:" -m "$summary"; then
             echo "conflict=false" >> "$GITHUB_OUTPUT"
+            # Nothing new from main → skip the toolchain setup, audit, and push.
+            if [ "$before" = "$(git rev-parse HEAD)" ]; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            fi
           elif [ -n "$(git ls-files -u)" ]; then
             echo "conflict=true" >> "$GITHUB_OUTPUT"
             git add -A
@@ -101,23 +108,23 @@ jobs:
       # Audit a textually-clean merge before integrating it: upstream SDK changes
       # can break a tool without touching the same lines. Same gate as pr-check.
       - name: Set up JDK 17
-        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false'
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.merge.outputs.changed == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Android SDK
-        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false'
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.merge.outputs.changed == 'true'
         uses: android-actions/setup-android@v3
 
       - name: Set up Gradle
-        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false'
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.merge.outputs.changed == 'true'
         uses: gradle/actions/setup-gradle@v4
 
       - name: Audit merged result with the build gate
         id: audit
-        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false'
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.merge.outputs.changed == 'true'
         env:
           GH_PACKAGES_USER: ${{ secrets.GH_CI_USER }}
           GH_PACKAGES_TOKEN: ${{ secrets.GH_CI_TOKEN }}
@@ -133,12 +140,16 @@ jobs:
         if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.audit.outputs.gate == 'pass'
         run: git push origin HEAD:${{ matrix.branch }}
 
+      # Both sync-branch pushes force: the open-PR guard above ensures nothing
+      # in flight uses the branch, so force only clears leftovers of closed PRs
+      # (a stale sync branch would otherwise reject the plain push).
+
       - name: Push gate-failing merge to a sync branch and open a PR
         if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.audit.outputs.gate == 'fail'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git push origin HEAD:"${{ steps.check-pr.outputs.sync_branch }}"
+          git push --force origin HEAD:"${{ steps.check-pr.outputs.sync_branch }}"
           gh pr create \
             --base "${{ matrix.branch }}" \
             --head "${{ steps.check-pr.outputs.sync_branch }}" \
@@ -150,7 +161,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git push origin HEAD:"${{ steps.check-pr.outputs.sync_branch }}"
+          git push --force origin HEAD:"${{ steps.check-pr.outputs.sync_branch }}"
           gh pr create \
             --base "${{ matrix.branch }}" \
             --head "${{ steps.check-pr.outputs.sync_branch }}" \
