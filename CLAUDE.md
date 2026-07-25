@@ -76,6 +76,12 @@ tool/src/test/kotlin/.../   StationIndexTest.kt, RepositoryTest.kt   ← pure-JV
 - **M3 Device + job** — LP3 over cellular; `@LightJob` verified to top up (log + inspect Room after a day).
 - **M4 Polish + submission** — US-only copy in README/listing, license, defense paragraph.
 
+## v0.2 roadmap (agreed 2026-07-25)
+
+- **Water temperature** — one Home line: `Water: 84° · as of 2:00 PM`. It is an *observation*, not a prediction: CO-OPS `product=water_temperature` exists only at physical-sensor stations (~200), so `gen-stations.sh` grows a nearest-sensor mapping (stationId → sensorId, distance-capped) alongside the existing patch map. Fetched on open with its own "as of" stamp — never by the daily job; absent (not zero) where no sensor is in range; never render a stale temp as current — offline shows nothing. The vetting defense gains one sentence: predictions still fetch once daily; the temp line is the single on-open observation.
+- **Multi-station views** — each saved station its own swipeable/tappable page, using weather's exact day-paging grammar (horizontal drag + top-bar arrows); stations managed in Settings (add/remove, small finite cap ~3). Room already keys rows by stationId, so storage is ready — the work is meta (saved-station list + last-viewed), per-station staleness, and the job topping up each saved station (still one fetch per station per day).
+- **User guide / FAQ** — thorough, comprehensive, concise, finite. A static in-tool screen reachable from Settings (the weather attribution-screen pattern) plus the same content in the README: picking/changing stations, what H/L heights mean (MLLW datum, negative lows), station-local times, refresh cadence and offline behavior, US-only scope.
+
 ## Vetting defense (seed)
 
 Tides fetches a seven-day table of public-domain NOAA predictions for one user-chosen station, once a day, and renders it as a finite list. No account, no key, no feed, no infinite anything — the screen ends where the week ends. It is the weather example's architecture pointed at the coast, for people whose "go outside" depends on the water.
