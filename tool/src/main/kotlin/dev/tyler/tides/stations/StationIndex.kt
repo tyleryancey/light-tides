@@ -22,11 +22,21 @@ private const val STATIONS_ASSET = "/stations.json"
 
 class StationIndex(private val stations: List<Station>) {
 
+    // Tiered so a two-letter state code isn't drowned by incidental name substrings
+    // ("or" ⊂ every "Harbor"): exact state, then name prefix, then bare substring.
+    // sortedBy is stable, so directory order is preserved within each tier.
     fun search(query: String, limit: Int = 12): List<Station> {
         val needle = query.trim()
         if (needle.isEmpty()) return emptyList()
         return stations
             .filter { it.name.contains(needle, ignoreCase = true) || it.state.contains(needle, ignoreCase = true) }
+            .sortedBy { station ->
+                when {
+                    station.state.equals(needle, ignoreCase = true) -> 0
+                    station.name.startsWith(needle, ignoreCase = true) -> 1
+                    else -> 2
+                }
+            }
             .take(limit)
     }
 

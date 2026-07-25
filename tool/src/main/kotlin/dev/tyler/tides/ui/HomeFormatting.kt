@@ -55,10 +55,11 @@ fun relativeUpdatedText(lastFetchEpochDay: Long?, today: LocalDate): String? {
     }
 }
 
-// Every US state/territory abbreviation present in the bundled NOAA station
-// directory, mapped to its plausible IANA zone(s). Used only to decide whether
-// to show the naive-time countdown line (CLAUDE.md: drop it rather than get it
-// wrong when the station's state doesn't plausibly match the phone's zone).
+// Every state/territory code present in the bundled station directory (incl.
+// the CNMI/COFA codes gen-stations.sh patches in by id), mapped to its
+// plausible IANA zone(s). Used only to decide whether the headline subline is
+// the countdown or the "Times are station-local" note — never a wrong
+// conversion (CLAUDE.md sharp edge).
 private val STATE_ZONES: Map<String, Set<String>> = mapOf(
     "AK" to setOf(
         "America/Anchorage", "America/Adak", "America/Nome", "America/Sitka",
@@ -79,6 +80,8 @@ private val STATE_ZONES: Map<String, Set<String>> = mapOf(
     "MA" to setOf("America/New_York"),
     "MD" to setOf("America/New_York"),
     "ME" to setOf("America/New_York"),
+    "MH" to setOf("Pacific/Majuro", "Pacific/Kwajalein"),
+    "MP" to setOf("Pacific/Saipan"),
     "MS" to setOf("America/Chicago"),
     "NC" to setOf("America/New_York"),
     "NH" to setOf("America/New_York"),
@@ -87,6 +90,7 @@ private val STATE_ZONES: Map<String, Set<String>> = mapOf(
     "OR" to setOf("America/Los_Angeles"),
     "PA" to setOf("America/New_York"),
     "PR" to setOf("America/Puerto_Rico"),
+    "PW" to setOf("Pacific/Palau"),
     "RI" to setOf("America/New_York"),
     "SC" to setOf("America/New_York"),
     "TX" to setOf("America/Chicago"),
@@ -119,12 +123,21 @@ fun formatHeight(heightFt: Double, unit: TideUnit): String {
 
 fun formatClockTime(time: LocalDateTime): String = time.format(CLOCK_TIME_FORMAT)
 
-// The full "HIGH 5.2 ft — 4:12 PM" line, used only for the "Next:" headline.
-// List rows use formatHeightTimeLine — the ▲/▼ glyph already carries H/L there.
-fun formatTideLine(prediction: TidePrediction, unit: TideUnit): String {
-    val label = if (prediction.type == TideType.HIGH) "HIGH" else "LOW"
-    return "$label ${formatHeight(prediction.heightFt, unit)} — ${formatClockTime(prediction.time)}"
-}
-
+// "5.2 ft — 4:12 PM" — the headline value line and every list row. High/low is
+// carried by the "NEXT · HIGH" label in the headline and the ▲/▼ glyph in rows.
 fun formatHeightTimeLine(prediction: TidePrediction, unit: TideUnit): String =
     "${formatHeight(prediction.heightFt, unit)} — ${formatClockTime(prediction.time)}"
+
+// Top-bar variant of a NOAA station name: "SEATTLE (Madison St.), Elliott Bay" →
+// "SEATTLE (Madison St.)". Safe against the whole bundled directory — no station
+// name has a comma inside parentheses (guarded by StationIndexTest).
+fun shortStationName(name: String): String = name.substringBefore(',').trim()
+
+// The one line under the "Next:" headline. Countdown when the phone's clock can be
+// trusted against station-local time; otherwise say what the times mean instead of
+// silently omitting — a Seattle "5:24 PM" read from Central time is a real misread.
+fun headlineSubline(next: TidePrediction?, plausibleZone: Boolean, now: LocalDateTime): String? = when {
+    next == null -> null
+    plausibleZone -> countdownText(next, now)
+    else -> "Times are station-local"
+}

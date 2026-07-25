@@ -1,14 +1,18 @@
 package dev.tyler.tides.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import com.thelightphone.sdk.LightScreen
 import com.thelightphone.sdk.SealedLightActivity
 import com.thelightphone.sdk.buildDatabase
@@ -63,6 +67,7 @@ class SettingsScreen(sealedActivity: SealedLightActivity) :
 
                 Column(
                     modifier = Modifier
+                        .weight(1f)
                         .fillMaxWidth()
                         .padding(horizontal = 1f.gridUnitsAsDp()),
                 ) {
@@ -81,8 +86,31 @@ class SettingsScreen(sealedActivity: SealedLightActivity) :
                         },
                     )
                 }
+
+                SourceFooter()
             }
         }
+    }
+}
+
+// Mirrors the weather example's attribution footer slot. NOAA data is public
+// domain — no attribution required — but saying where predictions come from
+// (and that coverage is US stations) belongs in the product, not just the README.
+@Composable
+private fun SourceFooter() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(4f.gridUnitsAsDp())
+            .padding(horizontal = 1f.gridUnitsAsDp()),
+        contentAlignment = Alignment.Center,
+    ) {
+        LightText(
+            text = "Tide predictions provided by NOAA (US stations).",
+            variant = LightTextVariant.Fine,
+            lighten = true,
+            align = TextAlign.Center,
+        )
     }
 }
 

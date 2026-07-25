@@ -49,6 +49,30 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun sublineIsTheCountdownWhenThePhoneZoneIsPlausible() {
+        val snapshot = TidesSnapshot(
+            station, predictions = listOf(tide(4, 4.2, TideType.HIGH)),
+            lastFetchEpochDay = today.toEpochDay(), stale = false,
+        )
+        val mode = assertIs<HomeScreenMode.Content>(
+            snapshot.toScreenMode(today, now = LocalDateTime.of(2026, 7, 20, 2, 0), zoneIsPlausible = { true }),
+        )
+        assertEquals("in 2h", mode.subline)
+    }
+
+    @Test
+    fun sublineLabelsStationLocalTimeWhenThePhoneZoneIsNot() {
+        val snapshot = TidesSnapshot(
+            station, predictions = listOf(tide(4, 4.2, TideType.HIGH)),
+            lastFetchEpochDay = today.toEpochDay(), stale = false,
+        )
+        val mode = assertIs<HomeScreenMode.Content>(
+            snapshot.toScreenMode(today, now = LocalDateTime.of(2026, 7, 20, 2, 0), zoneIsPlausible = { false }),
+        )
+        assertEquals("Times are station-local", mode.subline)
+    }
+
+    @Test
     fun emptyAndStaleFromATransientFailureShowsTheOfflineMessage() {
         val snapshot = TidesSnapshot(
             station, predictions = emptyList(), lastFetchEpochDay = null,

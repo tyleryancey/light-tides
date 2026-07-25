@@ -57,15 +57,15 @@ tool/src/main/kotlin/dev/tyler/tides/
 tool/src/test/kotlin/.../   StationIndexTest.kt, RepositoryTest.kt   ← pure-JVM gate
 ```
 
-**Station asset generation** (desktop, one-time, committed): `tools/gen-stations.sh` curls the MDAPI directory and jq-trims to the five fields (~150 KB). Station *search* is therefore fully offline; only predictions need the network. Regenerate ahead of each release.
+**Station asset generation** (desktop, one-time, committed): `tools/gen-stations.sh` curls the MDAPI directory, jq-trims to the five fields, and drops NOAA's blank-state foreign holdovers (~3,076 stations, ~290 KB) — v1 is US-coastal only. NOAA leaves a handful of genuine US-territory/COFA stations blank or miscoded (Apra Harbor, Pago Pago, Saipan, Kwajalein/Majuro, Malakal) and stamps "AS" on foreign Apia; the script's id→state patch map restores the former and excludes the latter, `STATE_ZONES` carries the matching MP/MH/PW zones, and `StationIndexTest` guards all of it across regens. Station *search* is therefore fully offline; only predictions need the network. Regenerate ahead of each release.
 
 ## Behavior
 
-- **Home:** station name · big "Next: HIGH 5.2 ft — 4:12 PM" with a "in 2 h 40 m" line (compare naive station time to naive phone time — imperfect across zones, fine for someone standing on that coast; if station state ≠ plausible phone zone, drop the countdown line rather than get it wrong) · today's remaining H/L rows · a 7-day strip of per-day H/L pairs. Finite: seven days, then nothing to scroll.
+- **Home:** short station name (`shortStationName` — first-comma truncation, safe against the whole directory) · "Next" headline at **subtitle scale, not Title** (115sp Title wraps the sentence to ~5 lines on the 1080px device — verified on LP3) with a "in 2h 40m" subline (compare naive station time to naive phone time — imperfect across zones, fine for someone standing on that coast; if station state ≠ plausible phone zone, show a "Times are station-local" note instead of a wrong countdown) · today's remaining H/L rows · a 7-day strip of per-day H/L rows. Finite: seven days, then nothing to scroll.
 - Cache-first always: render from Room instantly, show "updated {relative}" in Detail variant; fetch only when `lastFetchEpochDay < today` or station changed; offline + stale-but-present → render with the stamp, no error modal; offline + empty → weather-style error state.
-- **Station picker:** `LightTextInputEditor` filtering the bundled index by substring on name/state (top 12 results, finite). First launch lands here (`canCancel=false`). Changing station wipes the other station's rows.
+- **Station picker:** `LightTextInputEditor` over the bundled index — ranked tiers: exact state match, then name prefix, then bare substring ("or" ⊂ every "Harbor", so an unranked "OR" query returned zero Oregon stations); top 12 results, finite. First launch lands here (`canCancel=false`). Changing station wipes the other station's rows.
 - **`@LightJob "tides-refresh"`:** if `lastFetchEpochDay < today`, fetch and store (reuses `TideRepository.loadTides`, so a run on an already-fresh day costs nothing beyond a read). Confirmed: `LightWork.enqueuePeriodic(context, key, repeatInterval, tag)` exposes WorkManager's own periodic API directly (15-minute floor) — no need to hand-roll a daily reschedule. Scheduled from `HomeScreen` at 24h, not from `ToolEntryPoint` (see Architecture note above). Job failure is invisible-by-design; the on-open path always self-heals — and the job itself distinguishes a permanent NOAA error (bad station/query — resolves to `Error`, resumes the normal daily cadence) from a transient HTTP/network failure (`Retry`, so WorkManager backs off and tries again soon), so a dead station doesn't get hammered forever.
-- Settings: exactly one — units ft/m (**default ft**, since v1 is NOAA/US; keep the settings-default-off spirit by adding nothing else). `units=english` fetch + local conversion for display, or refetch metric — convert locally, simpler.
+- Settings: exactly one — units ft/m (**default ft**, since v1 is NOAA/US; keep the settings-default-off spirit by adding nothing else). `units=english` fetch + local conversion for display, or refetch metric — convert locally, simpler. Plus a non-interactive fine-print footer, mirroring weather's attribution slot: "Tide predictions provided by NOAA (US stations)." — states source and US scope in-product.
 - Monochrome discipline: `LightTheme`/`LightThemeTokens`, dual palette, no color literals; H/L distinguished by ▲/▼ glyphs and weight, not color.
 
 ## Milestones · definitions of done
@@ -82,7 +82,7 @@ Tides fetches a seven-day table of public-domain NOAA predictions for one user-c
 
 ## Sharp edges
 
-- The naive `lst_ldt` timestamp is the whole timezone story — never `Instant`-ify it. The one place phone-clock meets station-clock (the countdown) is explicitly allowed to be dropped rather than converted.
+- The naive `lst_ldt` timestamp is the whole timezone story — never `Instant`-ify it. The one place phone-clock meets station-clock (the countdown) is replaced by a "Times are station-local" note rather than converted when the phone's zone is implausible for the station's state.
 - `datagetter` returns `{"error":{"message":…}}` with HTTP 200 for bad stations — check for the error key, not just status.
 - Heights are strings in the JSON (`"5.213"`) — parse defensively.
 - A handful of directory stations are subordinate/sparse; if a fetch returns < 2 events for today, show them anyway — never fabricate.

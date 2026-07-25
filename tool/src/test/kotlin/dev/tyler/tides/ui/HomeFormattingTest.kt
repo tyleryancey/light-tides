@@ -105,6 +105,11 @@ class HomeFormattingTest {
         assertTrue(isPlausiblePhoneZone("hi", ZoneId.of("Pacific/Honolulu"), instant))
         assertFalse(isPlausiblePhoneZone("CA", ZoneId.of("America/New_York"), instant))
         assertFalse(isPlausiblePhoneZone("ZZ", ZoneId.of("America/Los_Angeles"), instant))
+        // Codes the asset generator patches in by id (CNMI + the COFA states) —
+        // without map entries their users would permanently lose the countdown.
+        assertTrue(isPlausiblePhoneZone("MP", ZoneId.of("Pacific/Saipan"), instant))
+        assertTrue(isPlausiblePhoneZone("MH", ZoneId.of("Pacific/Majuro"), instant))
+        assertTrue(isPlausiblePhoneZone("PW", ZoneId.of("Pacific/Palau"), instant))
     }
 
     @Test
@@ -114,6 +119,36 @@ class HomeFormattingTest {
         // America/New_York year-round — offset comparison catches them without enumeration.
         assertTrue(isPlausiblePhoneZone("NY", ZoneId.of("America/Detroit"), instant))
         assertTrue(isPlausiblePhoneZone("NY", ZoneId.of("America/Kentucky/Louisville"), instant))
+    }
+
+    @Test
+    fun shortStationNameDropsEverythingAfterTheFirstComma() {
+        // Verified against the full bundled directory: no station name has a comma
+        // inside parentheses, so first-comma truncation is safe for every entry.
+        assertEquals("SEATTLE (Madison St.)", shortStationName("SEATTLE (Madison St.), Elliott Bay"))
+        assertEquals("PORTLAND", shortStationName("PORTLAND"))
+        assertEquals("Cutler", shortStationName("Cutler, Naval Radio Station"))
+    }
+
+    @Test
+    fun headlineSublineIsTheCountdownWhenThePhoneZoneIsPlausible() {
+        val next = tide(20, 17, 24, 5.773, TideType.HIGH)
+        val now = LocalDateTime.of(2026, 7, 20, 14, 44)
+        assertEquals("in 2h 40m", headlineSubline(next, plausibleZone = true, now = now))
+    }
+
+    @Test
+    fun headlineSublineLabelsStationLocalTimeWhenThePhoneZoneIsNot() {
+        val next = tide(20, 17, 24, 5.773, TideType.HIGH)
+        val now = LocalDateTime.of(2026, 7, 20, 14, 44)
+        assertEquals("Times are station-local", headlineSubline(next, plausibleZone = false, now = now))
+    }
+
+    @Test
+    fun headlineSublineIsNullWithoutAnUpcomingTide() {
+        val now = LocalDateTime.of(2026, 7, 20, 14, 44)
+        assertNull(headlineSubline(null, plausibleZone = true, now = now))
+        assertNull(headlineSubline(null, plausibleZone = false, now = now))
     }
 
     @Test
@@ -128,12 +163,6 @@ class HomeFormattingTest {
         assertEquals("4:12 AM", formatClockTime(LocalDateTime.of(2026, 7, 20, 4, 12)))
         assertEquals("4:12 PM", formatClockTime(LocalDateTime.of(2026, 7, 20, 16, 12)))
         assertEquals("12:00 AM", formatClockTime(LocalDateTime.of(2026, 7, 20, 0, 0)))
-    }
-
-    @Test
-    fun formatTideLineMatchesCLAUDEMdExampleShape() {
-        val next = tide(20, 16, 12, 5.213, TideType.HIGH)
-        assertEquals("HIGH 5.2 ft — 4:12 PM", formatTideLine(next, TideUnit.FEET))
     }
 
     @Test

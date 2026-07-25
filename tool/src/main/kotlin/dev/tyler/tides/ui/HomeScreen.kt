@@ -151,7 +151,7 @@ private fun TidesContent(
 ) {
     Column(modifier = Modifier.fillMaxSize().background(LightThemeTokens.colors.background)) {
         LightTopBar(
-            center = LightTopBarCenter.Text(mode.stationName),
+            center = LightTopBarCenter.Text(shortStationName(mode.stationName)),
             modifier = Modifier.padding(bottom = 0.5f.gridUnitsAsDp()),
         )
 
@@ -162,14 +162,24 @@ private fun TidesContent(
                 .padding(horizontal = 1f.gridUnitsAsDp()),
         ) {
             if (mode.next != null) {
+                // Label-over-value lockup: Title (115sp) wraps the old one-sentence
+                // headline to ~5 lines on the LP3, and even Subtitle wraps once the
+                // height+time string runs long. The label carries H/L so the value
+                // line stays a single line at Subtitle scale no matter the data.
                 LightText(
-                    text = "Next: ${formatTideLine(mode.next, units)}",
-                    variant = LightTextVariant.Title,
-                    modifier = Modifier.padding(bottom = (if (mode.countdown != null) 0f else 0.75f).gridUnitsAsDp()),
+                    text = if (mode.next.type == TideType.HIGH) "NEXT · HIGH" else "NEXT · LOW",
+                    variant = LightTextVariant.Detail,
+                    lighten = true,
+                    modifier = Modifier.padding(bottom = 0.15f.gridUnitsAsDp()),
                 )
-                if (mode.countdown != null) {
+                LightText(
+                    text = formatHeightTimeLine(mode.next, units),
+                    variant = LightTextVariant.Subtitle,
+                    modifier = Modifier.padding(bottom = (if (mode.subline != null) 0f else 0.75f).gridUnitsAsDp()),
+                )
+                if (mode.subline != null) {
                     LightText(
-                        text = mode.countdown,
+                        text = mode.subline,
                         variant = LightTextVariant.Detail,
                         lighten = true,
                         modifier = Modifier.padding(bottom = 0.75f.gridUnitsAsDp()),

@@ -28,7 +28,9 @@ sealed class HomeScreenMode {
         val stationId: String,
         val stationName: String,
         val next: TidePrediction?,
-        val countdown: String?,
+        // Countdown to `next` when the phone's zone plausibly matches the station's,
+        // otherwise a "Times are station-local" note — never a wrong conversion.
+        val subline: String?,
         val todaysRemaining: List<TidePrediction>,
         val week: List<DayTides>,
         val updatedRelative: String?,
@@ -119,7 +121,11 @@ class HomeViewModel(
     }
 }
 
-internal fun dev.tyler.tides.data.TidesSnapshot?.toScreenMode(today: LocalDate): HomeScreenMode {
+internal fun dev.tyler.tides.data.TidesSnapshot?.toScreenMode(
+    today: LocalDate,
+    now: LocalDateTime = LocalDateTime.now(),
+    zoneIsPlausible: (String) -> Boolean = { isPlausiblePhoneZone(it) },
+): HomeScreenMode {
     val snapshot = this ?: return HomeScreenMode.NeedsStation
     if (snapshot.predictions.isEmpty() && snapshot.stale) {
         // A permanent NOAA error (bad station/query) reads nothing like "no network" — telling
@@ -128,14 +134,13 @@ internal fun dev.tyler.tides.data.TidesSnapshot?.toScreenMode(today: LocalDate):
         return HomeScreenMode.ErrorState(message)
     }
 
-    val now = LocalDateTime.now()
     val next = nextTide(snapshot.predictions, now)
-    val plausibleZone = isPlausiblePhoneZone(snapshot.station.state)
+    val plausibleZone = zoneIsPlausible(snapshot.station.state)
     return HomeScreenMode.Content(
         stationId = snapshot.station.id,
         stationName = snapshot.station.name,
         next = next,
-        countdown = next?.takeIf { plausibleZone }?.let { countdownText(it, now) },
+        subline = headlineSubline(next, plausibleZone, now),
         todaysRemaining = todaysRemaining(snapshot.predictions, today, now),
         week = groupByDay(thisWeek(snapshot.predictions, today)),
         updatedRelative = if (snapshot.stale) relativeUpdatedText(snapshot.lastFetchEpochDay, today) else null,
