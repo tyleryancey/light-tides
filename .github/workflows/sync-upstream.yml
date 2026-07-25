@@ -51,13 +51,15 @@ jobs:
     name: Merge main into ${{ matrix.branch }}
     needs: sync-main
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
       pull-requests: write
+      packages: read
     strategy:
       fail-fast: false
       matrix:
-        branch: [sudoku, ledger, chess, ringtone-studio]
+        branch: [sudoku, ledger, chess, ringtone-studio, tides]
     steps:
       - name: Checkout ${{ matrix.branch }}
         uses: actions/checkout@v4
@@ -96,9 +98,52 @@ jobs:
             exit 1
           fi
 
-      - name: Push clean merge directly
+      # Audit a textually-clean merge before integrating it: upstream SDK changes
+      # can break a tool without touching the same lines. Same gate as pr-check.
+      - name: Set up JDK 17
         if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false'
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Audit merged result with the build gate
+        id: audit
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false'
+        env:
+          GH_PACKAGES_USER: ${{ secrets.GH_CI_USER }}
+          GH_PACKAGES_TOKEN: ${{ secrets.GH_CI_TOKEN }}
+        run: |
+          if ./gradlew check --stacktrace; then
+            echo "gate=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "gate=fail" >> "$GITHUB_OUTPUT"
+            echo "::warning::Build gate failed on the merged result for ${{ matrix.branch }}; opening a reconciliation PR instead of pushing."
+          fi
+
+      - name: Push clean, audited merge directly
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.audit.outputs.gate == 'pass'
         run: git push origin HEAD:${{ matrix.branch }}
+
+      - name: Push gate-failing merge to a sync branch and open a PR
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.audit.outputs.gate == 'fail'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git push origin HEAD:"${{ steps.check-pr.outputs.sync_branch }}"
+          gh pr create \
+            --base "${{ matrix.branch }}" \
+            --head "${{ steps.check-pr.outputs.sync_branch }}" \
+            --title "Sync main into ${{ matrix.branch }}: clean merge, build gate failed" \
+            --body "The scheduled upstream sync merged \`main\` into \`${{ matrix.branch }}\` without conflicts, but \`./gradlew check\` failed on the merged result — an upstream change needs reconciling with this tool's code. Gate log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Push fixes to \`${{ steps.check-pr.outputs.sync_branch }}\`; this automation will not touch this branch again until this PR is closed or merged."
 
       - name: Push conflicted merge to a sync branch and open a PR
         if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'true'
