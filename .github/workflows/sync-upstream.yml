@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   sync-main:
-    name: Fast-forward main from lightphone/light-sdk
+    name: Sync main from lightphone/light-sdk
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -30,12 +30,20 @@ jobs:
           git config user.name "light-tools sync bot"
           git config user.email "actions@users.noreply.github.com"
 
-      - name: Fetch and fast-forward from upstream
+      - name: Fetch and merge from upstream
         id: ff
+        # main carries fork-only commits (this workflow), so a fast-forward can
+        # never succeed — merge instead, recording the incoming upstream commits
+        # in the merge commit body.
         run: |
           git remote add upstream https://github.com/lightphone/light-sdk.git
           git fetch upstream main
-          git merge --ff-only upstream/main
+          summary=$(git log --oneline --no-decorate HEAD..upstream/main)
+          if [ -n "$summary" ]; then
+            git merge upstream/main -m "Merge upstream lightphone/light-sdk main" -m "Upstream changes:" -m "$summary"
+          else
+            echo "Already up to date with upstream."
+          fi
           git push origin main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -43,13 +51,15 @@ jobs:
     name: Merge main into ${{ matrix.branch }}
     needs: sync-main
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
       pull-requests: write
+      packages: read
     strategy:
       fail-fast: false
       matrix:
-        branch: [sudoku, ledger]
+        branch: [sudoku, ledger, chess, ringtone-studio, tides]
     steps:
       - name: Checkout ${{ matrix.branch }}
         uses: actions/checkout@v4
@@ -76,8 +86,16 @@ jobs:
         id: merge
         if: steps.check-pr.outputs.existing_pr == ''
         run: |
-          if git merge origin/main --no-edit; then
+          before=$(git rev-parse HEAD)
+          summary=$(git log --oneline --no-decorate HEAD..origin/main)
+          if git merge origin/main -m "Merge main into ${{ matrix.branch }}" -m "Upstream changes:" -m "$summary"; then
             echo "conflict=false" >> "$GITHUB_OUTPUT"
+            # Nothing new from main → skip the toolchain setup, audit, and push.
+            if [ "$before" = "$(git rev-parse HEAD)" ]; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            fi
           elif [ -n "$(git ls-files -u)" ]; then
             echo "conflict=true" >> "$GITHUB_OUTPUT"
             git add -A
@@ -87,16 +105,63 @@ jobs:
             exit 1
           fi
 
-      - name: Push clean merge directly
-        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false'
+      # Audit a textually-clean merge before integrating it: upstream SDK changes
+      # can break a tool without touching the same lines. Same gate as pr-check.
+      - name: Set up JDK 17
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.merge.outputs.changed == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.merge.outputs.changed == 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.merge.outputs.changed == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Audit merged result with the build gate
+        id: audit
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.merge.outputs.changed == 'true'
+        env:
+          GH_PACKAGES_USER: ${{ secrets.GH_CI_USER }}
+          GH_PACKAGES_TOKEN: ${{ secrets.GH_CI_TOKEN }}
+        run: |
+          if ./gradlew check --stacktrace; then
+            echo "gate=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "gate=fail" >> "$GITHUB_OUTPUT"
+            echo "::warning::Build gate failed on the merged result for ${{ matrix.branch }}; opening a reconciliation PR instead of pushing."
+          fi
+
+      - name: Push clean, audited merge directly
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.audit.outputs.gate == 'pass'
         run: git push origin HEAD:${{ matrix.branch }}
+
+      # Both sync-branch pushes force: the open-PR guard above ensures nothing
+      # in flight uses the branch, so force only clears leftovers of closed PRs
+      # (a stale sync branch would otherwise reject the plain push).
+
+      - name: Push gate-failing merge to a sync branch and open a PR
+        if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'false' && steps.audit.outputs.gate == 'fail'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git push --force origin HEAD:"${{ steps.check-pr.outputs.sync_branch }}"
+          gh pr create \
+            --base "${{ matrix.branch }}" \
+            --head "${{ steps.check-pr.outputs.sync_branch }}" \
+            --title "Sync main into ${{ matrix.branch }}: clean merge, build gate failed" \
+            --body "The scheduled upstream sync merged \`main\` into \`${{ matrix.branch }}\` without conflicts, but \`./gradlew check\` failed on the merged result — an upstream change needs reconciling with this tool's code. Gate log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Push fixes to \`${{ steps.check-pr.outputs.sync_branch }}\`; this automation will not touch this branch again until this PR is closed or merged."
 
       - name: Push conflicted merge to a sync branch and open a PR
         if: steps.check-pr.outputs.existing_pr == '' && steps.merge.outputs.conflict == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git push origin HEAD:"${{ steps.check-pr.outputs.sync_branch }}"
+          git push --force origin HEAD:"${{ steps.check-pr.outputs.sync_branch }}"
           gh pr create \
             --base "${{ matrix.branch }}" \
             --head "${{ steps.check-pr.outputs.sync_branch }}" \
@@ -105,4 +170,7 @@ jobs:
 
       - name: Skip — conflict-resolution PR already open
         if: steps.check-pr.outputs.existing_pr != ''
-        run: echo "PR #${{ steps.check-pr.outputs.existing_pr }} is already open for ${{ matrix.branch }}; leaving it alone until it's resolved."
+        # Block scalar: on a plain "run:" line, YAML would treat " #..." as a
+        # comment and truncate the script to `echo "PR` (unmatched quote).
+        run: |
+          echo "PR #${{ steps.check-pr.outputs.existing_pr }} is already open for ${{ matrix.branch }}; leaving it alone until it's resolved."
