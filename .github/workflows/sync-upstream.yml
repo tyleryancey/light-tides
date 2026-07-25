@@ -57,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: [sudoku, ledger, chess]
+        branch: [sudoku, ledger, chess, ringtone-studio]
     steps:
       - name: Checkout ${{ matrix.branch }}
         uses: actions/checkout@v4
